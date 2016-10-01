@@ -106,7 +106,9 @@ dispatch(state_t *state) {
 	state->IQ[state->IQ_tail].ROB_index = state->ROB_tail;
 
 		/*
-		Set tag1/operand1 and tag2/operand2 fields
+		Set tag1/operand1 and tag2/operand2 fields.
+		Check_in_flight_status takes the state, register and int/flt
+		and returns the value in the 
 		-Check desired register
 			-if (tag_check == -1) 
 				-read register value into operand
@@ -124,13 +126,13 @@ dispatch(state_t *state) {
 		/*Check R1 tag*/
 		tag_check = check_in_flight_status()
 		if(tag_check == -1){
-			state->IQ[state->IQ_tail].operand1.integer.w = state->rf_int.reg_int[r1].w;
+			state->IQ[state->IQ_tail].operand1.integer.w = state->rf_int.reg_int.integer[r1].w;
 			state->IQ[state->IQ_tail].tag1 = -1;
 		}
 		else{
 			tag_check = state->ROB[tag_check].completed;
 			if (tag_check == -1){
-				state->IQ[state->IQ_tail].operand1.integer.w = state->rf_int.reg_int[r1].w;
+				state->IQ[state->IQ_tail].operand1.integer.w = state->rf_int.reg_int.integer[r1].w;
 			}
 			state->IQ[state->IQ_tail].tag1 = tag_check;
 		}
@@ -138,13 +140,13 @@ dispatch(state_t *state) {
 		if(use_imm == FALSE) {
 			tag_check = check_in_flight_status(state);
 			if (tag_check == -1){
-				state->IQ[state->IQ_tail].operand2.integer.w = state->rf_int.reg_int[r2].w;
+				state->IQ[state->IQ_tail].operand2.integer.w = state->rf_int.reg_int.integer[r2].w;
 				state->IQ[state->IQ_tail].tag2 = -1
 			}
 			else{
 				tag_check = state->ROB[tag_check].completed;
 				if (tag_check == -1){
-					state->IQ[state->IQ_tail].operand2.integer.w = state->rf_int.reg_int[r2].w;
+					state->IQ[state->IQ_tail].operand2.integer.w = state->rf_int.reg_int.integer[r2].w;
 			}
 			state->IQ[state->IQ_tail].tag2 = tag_check;
 			}
@@ -166,13 +168,13 @@ dispatch(state_t *state) {
 			/*Check R1 tag*/
 		tag_check = check_in_flight_status()
 		if(tag_check == -1){
-			state->IQ[state->IQ_tail].operand1.integer.w = state->rf_int.reg_int[r1].w;
+			state->IQ[state->IQ_tail].operand1.integer.w = state->rf_int.reg_int.integer[r1].w;
 			state->IQ[state->IQ_tail].tag1 = -1;
 		}
 		else{
 			tag_check = state->ROB[tag_check].completed;
 			if (tag_check == -1){
-				state->IQ[state->IQ_tail].operand1.integer.w = state->rf_int.reg_int[r1].w;
+				state->IQ[state->IQ_tail].operand1.integer.w = state->rf_int.reg_int.integer[r1].w;
 			}
 			state->IQ[state->IQ_tail].tag1 = tag_check;
 		}
@@ -195,26 +197,26 @@ dispatch(state_t *state) {
 				/*Check R1 tag*/
 		tag_check = check_in_flight_status();
 		if(tag_check == -1) {
-			state->IQ[state->IQ_tail].operand1.flt = state->rf_fp.reg_fp[r1];
+			state->IQ[state->IQ_tail].operand1.flt = state->rf_fp.reg_fp.flt[r1];
 			state->IQ[state->IQ_tail].tag1 = -1;
 		}
 		else{
 			tag_check = state->ROB[tag_check].completed;
 			if (tag_check == -1){
-				state->IQ[state->IQ_tail].operand1.flt = state->rf_fp.reg_int[r1];
+				state->IQ[state->IQ_tail].operand1.flt = state->rf_fp.reg_fp.flt[r1];
 			}
 			state->IQ[state->IQ_tail].tag1 = tag_check;
 		}
 				/*Check R2 tag*/
 		tag_check = check_in_flight_status();
 		if(tag_check == -1) {
-			state->IQ[state->IQ_tail].operand2.flt = state->rf_fp.reg_fp[r2];
+			state->IQ[state->IQ_tail].operand2.flt = state->rf_fp.reg_fp.flt[r2];
 			state->IQ[state->IQ_tail].tag2 = -1;
 		}
 		else{
 			tag_check = state->ROB[tag_check].completed;
 			if (tag_check == -1){
-				state->IQ[state->IQ_tail].operand2.flt = state->rf_fp.reg_int[r2];
+				state->IQ[state->IQ_tail].operand2.flt = state->rf_fp.reg_fp.flt[r2];
 			}
 			state->IQ[state->IQ_tail].tag2 = tag_check;
 		}
@@ -233,13 +235,13 @@ dispatch(state_t *state) {
 		else{
 			tag_check = check_in_flight_status();
 			if(tag_check == -1) {
-				state->IQ[state->IQ_tail].operand1.integer.wu = state->rf_int.reg_int[r1].wu;
+				state->IQ[state->IQ_tail].operand1.integer.wu = state->rf_int.reg_int.integer[r1].wu;
 				state->IQ[state->IQ_tail].tag1 = -1;
 			}
 			else{
 				tag_check = state->ROB[tag_check].completed;
 				if (tag_check == -1){
-					state->IQ[state->IQ_tail].operand1.integer.wu = state->rf_int.reg_int[r1].wu;
+					state->IQ[state->IQ_tail].operand1.integer.wu = state->rf_int.reg_int.integer[r1].wu;
 				}
 				state->IQ[state->IQ_tail].tag1 = tag_check;
 			}
@@ -263,6 +265,10 @@ dispatch(state_t *state) {
 	/*Ensure that R0 tag is always -1*/
 	state->rf_int.tag[0] = -1;
 
+	/*
+	CQ
+
+	*/
 }
 
 
