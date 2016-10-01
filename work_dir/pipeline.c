@@ -115,12 +115,13 @@ dispatch(state_t *state) {
 				-if (ROB_index in-flight Completed flag == TRUE)
 					-read result into operand
 					-set IQ tag = -1
-				else -> In-flight instruction has not completed
+				-else -> In-flight instruction has not completed
 					-IQ tag = tag_check
 		-Set destination register tag to ROB_index
 		*/
 			/*Integer Arithmetic / Logic*/
 	if (op_info->fu_group_num == FU_GROUP_INT) {
+		/*Check R1 tag*/
 		tag_check = check_in_flight_status()
 		if(tag_check == -1){
 			state->IQ[state->IQ_tail].operand1.integer.w = state->rf_int.reg_int[r1].w;
@@ -133,6 +134,7 @@ dispatch(state_t *state) {
 			}
 			state->IQ[state->IQ_tail].tag1 = tag_check;
 		}
+		/*Check R2 tag if no immediate*/
 		if(use_imm == FALSE) {
 			tag_check = check_in_flight_status(state);
 			if (tag_check == -1){
@@ -146,46 +148,120 @@ dispatch(state_t *state) {
 			}
 			state->IQ[state->IQ_tail].tag2 = tag_check;
 			}
-				/*Set destination register tag to ROB_index*/
+				/*Set destination register R3 tag to ROB_index*/
 			state->rf_int.tag[r3] = state->ROB_tail;
 		}
 			/*Integer Arithmetic / Logic with Immediate*/
 		else {
 			state->IQ[state->IQ_tail].operand2.integer.w = imm;
 			state->IQ[state->IQ_tail].tag2 = -1;
-				/*Set destination register tag to ROB_index*/
+				/*Set destination register R2 tag to ROB_index*/
 			state->rf_int.tag[r2] = state->ROB_tail;
 		}
 	}
 
 			/*Memory*/
 	if (op_info->fu_group_num == FU_GROUP_MEM) {
-		operand1.integer.w = state->rf_int.reg_int[r1].w;
-		operand2.integer.w = imm;
+		/*?Is this the same for Load and Store?*/
+			/*Check R1 tag*/
+		tag_check = check_in_flight_status()
+		if(tag_check == -1){
+			state->IQ[state->IQ_tail].operand1.integer.w = state->rf_int.reg_int[r1].w;
+			state->IQ[state->IQ_tail].tag1 = -1;
+		}
+		else{
+			tag_check = state->ROB[tag_check].completed;
+			if (tag_check == -1){
+				state->IQ[state->IQ_tail].operand1.integer.w = state->rf_int.reg_int[r1].w;
+			}
+			state->IQ[state->IQ_tail].tag1 = tag_check;
+		}
+
+			/*Second operand is an immediate and always ready*/
+		state->IQ[state->IQ_tail].operand2.integer.w = imm;
+		state->IQ[state->IQ_tail].tag2 = -1;
+			
+			/*Set destination register tag to ROB_index*/
+		if (op_info->data_type == DATA_TYPE_F){
+			state->rf_fp.tag[r2] = state->ROB_tail;
+		}
+		else {
+			state->rf_int.tag[r2] = state->ROB_tail;
+		}
 	}
 
 			/*Floating Point Arithmetic*/
 	if ((op_info->fu_group_num == FU_GROUP_ADD)||(op_info->fu_group_num == FU_GROUP_MULT)||(op_info->fu_group_num == FU_GROUP_DIV)){
-		operand1.flt = state->rf_fp.reg_fp[r1];
-		operand2.flt = state->rf_fp.reg_fp[r2];
+				/*Check R1 tag*/
+		tag_check = check_in_flight_status();
+		if(tag_check == -1) {
+			state->IQ[state->IQ_tail].operand1.flt = state->rf_fp.reg_fp[r1];
+			state->IQ[state->IQ_tail].tag1 = -1;
+		}
+		else{
+			tag_check = state->ROB[tag_check].completed;
+			if (tag_check == -1){
+				state->IQ[state->IQ_tail].operand1.flt = state->rf_fp.reg_int[r1];
+			}
+			state->IQ[state->IQ_tail].tag1 = tag_check;
+		}
+				/*Check R2 tag*/
+		tag_check = check_in_flight_status();
+		if(tag_check == -1) {
+			state->IQ[state->IQ_tail].operand2.flt = state->rf_fp.reg_fp[r2];
+			state->IQ[state->IQ_tail].tag2 = -1;
+		}
+		else{
+			tag_check = state->ROB[tag_check].completed;
+			if (tag_check == -1){
+				state->IQ[state->IQ_tail].operand2.flt = state->rf_fp.reg_int[r2];
+			}
+			state->IQ[state->IQ_tail].tag2 = tag_check;
+		}
+				/*Set destination register R3 tag to ROB_index*/
+		state->rf_fp.tag[r3] = state->ROB_tail;
 	}
 
 			/*Control*/
 	if (op_info->fu_group_num == FU_GROUP_BRANCH){
+				/*These instructions don't have a source register*/
 		if ((op_info->operation == OPERATION_J)||(op_info->operation == OPERATION_JAL)) {
-			operand1.integer.w = 0;
-			operand2.integer.w = imm;
+			state->IQ[state->IQ_tail].operand1.integer.w = 0;
+			state->IQ[state->IQ_tail].tag1 = -1;
 		}
+				/*Check R1 tag*/
 		else{
-			operand1.integer.wu = state->rf_int.reg_int[r1].wu;
-			operand2.integer.w = imm;
+			tag_check = check_in_flight_status();
+			if(tag_check == -1) {
+				state->IQ[state->IQ_tail].operand1.integer.wu = state->rf_int.reg_int[r1].wu;
+				state->IQ[state->IQ_tail].tag1 = -1;
+			}
+			else{
+				tag_check = state->ROB[tag_check].completed;
+				if (tag_check == -1){
+					state->IQ[state->IQ_tail].operand1.integer.wu = state->rf_int.reg_int[r1].wu;
+				}
+				state->IQ[state->IQ_tail].tag1 = tag_check;
+			}
 		}
+				/*Second operand is always an immediate*/
+		state->IQ[state->IQ_tail].operand2.integer.w = imm;
+		state->IQ[state->IQ_tail].tag2 = -1;
+
+		/*
+		Jumps and branches don't write destination registers,they 
+		shouldn't create a new register name in the resiter file tag
+		(Excet for JAL - ignored for now)
+		*/
 	}
 
 	
-		/*Increment ROB and IQ tail*/
+	/*Increment ROB and IQ tail*/
 	incr_ROB_tail(state);
 	incr_IQ_tail(state);
+
+	/*Ensure that R0 tag is always -1*/
+	state->rf_int.tag[0] = -1;
 
 }
 
