@@ -23,20 +23,89 @@ writeback(state_t *state) {
 
 void
 execute(state_t *state) {
+	advance_fu_mem(state->fu_mem_list, )
+	advance_fu_int(state->fu_int_list, &state->int_wb);
+	advance_fu_fp(state->fu_add_list, &state->fp_wb);
+	advance_fu_fp(state->fu_mult_list, &state->fp_wb);
+	advance_fu_fp(state->fu_div_list, &state->fp_wb);
 }
 
 
 int
 memory_disambiguation(state_t *state) {
+	/*
+	The memory disambiguation stage scans the “CQ” for ready 
+	memory operations, checks for con-flicts, and issues the 
+	memory operations if no conflicts exist
+	
+	-Scan CQ
+	-If Store
+		-If tag1 != -1
+			-Disambiguation fails -> no memory operations can issue
+			-return
+		-If unissued && tag1 && tag2 == -1
+			-Issue store immediately
+				-Set completed bit in coresponding ROB entry to TRUE
+				-Place the store value in the result field for ROB entry
+	-If Load
+		-If unissued && tag1 == -1
+			Check for conflicts with an older store
+			-Rescan the CQ from head to see if earlier store is writing to the same location
+			-If conflict
+				-Continue scanning CQ
+			-Else
+				-Try to issue_fu_mem
+				-If issue_fu_mem == fail
+					-Stall -> Exit
+				-if issue_fu_mem == success
+					-Set issued bit to TRUE
+					-Perform Operation
+	*/
+
+	int pointer, use_imm, i;
+	const op_info_t *op_info;
+
+	pointer = state->CQ_head;
+	
+	for (i = 0; TRUE; i++) {
+		/*Decode Instruction*/
+		op_info = decode_instr(state->IQ[pointer].instr, &use_imm);
+		r2 = FIELD_R2(state->IQ[pointer].instr);
+		/*Stores*/
+		if (op_info->operation == OPERATION_STORE){
+			/*No Effective Address*/
+			if (state->CQ[pointer].tag1 != -1) {
+				break;
+			}
+			/*Unissued and Ready*/
+			if ((state->CQ[pointer].issued == FALSE) && (state->CQ[pointer].tag1 == -1) && (state->CQ[pointer].tag2 ==-1)){
+				state->ROB[state->CQ[pointer].ROB_index].completed = TRUE;
+				state->ROB[state->CQ[pointer].ROB_index].result = state->rf_fp.reg_fp.flt[r2];
+			}
+		}
+		/*Loads*/
+		if (op_info->operation == OPERATION_LOAD){
+			/*Unissued and Ready*/
+			if ((state->CQ[pointer].issued == FALSE) && (state->CQ[pointer].tag1 == -1)){
+
+			}
+
+		}
+	}
+
+
+
+
 }
 
 
 int
 issue(state_t *state) {
 
-	int pointer, remove; 
+	int pointer, remove, use_imm, i; 
 	int issue = -1;
 	operand_t result;
+	const op_info_t *op_info;
 
 	/*
 	Scan IQ starting at head and issue a ready instruction
@@ -49,6 +118,7 @@ issue(state_t *state) {
 				-Perform operation
 				-Try to issue the instruction
 				-If succesfull issue
+					-Set issue bit to TRUE
 					-Write result to ROB
 					-break
 		-If pointer == tail
@@ -65,11 +135,14 @@ issue(state_t *state) {
 			-Increment pointer
 
 	*/
-
+	
 	pointer = state->IQ_head;
+	
 	for (i = 0; TRUE; i++) {
 		if (state->IQ[pointer].issued == FALSE){
 			if ((state->IQ[pointer].tag1 == -1) && (state->IQ[pointer].tag2 ==-1)){
+				/*Decode Instruction*/
+				op_info = decode_instr(state->IQ[pointer].instr, &use_imm);
 				/*perform operation*/
 				result = perform_operation(state->IQ[pointer].instr, state->IQ[pointer].pc, state->IQ[pointer].operand1, state->IQ[pointer].operand2);
 				/*Issue Instruction*/
@@ -87,8 +160,15 @@ issue(state_t *state) {
 				}
 				/*Successful Issue*/
 				if (issue == 0){
+						/*Set issued bit to TRUE*/
+					state->ROB[state->IQ[pointer].ROB_index].issued= = TRUE;
 						/*Write result to ROB*/
-					state->ROB[state->IQ[pointer].ROB_index].result = result;
+							/*Loads and Stores: Effective Address goes to target*/
+					if (op_info->fu_group_num == FU_GROUP_MEM){
+						state->ROB[state->IQ[pointer].ROB_index].target = result;
+					}
+							/*Otherwise goes to result*/
+					else state->ROB[state->IQ[pointer].ROB_index].result = result;
 						/*Exit for loop*/
 					break;
 				}
@@ -101,7 +181,7 @@ issue(state_t *state) {
 	}
 	/*Remove any issued instructions from IQ*/
 	remove = TRUE;
-	for (;remove == TRUE;){
+	for (i = 0;remove == TRUE; i++){
 		pointer = state->IQ_head;
 		if (state->IQ[pointer].issued == FALSE) remove = FALSE;
 		else {
@@ -357,6 +437,7 @@ dispatch(state_t *state) {
 	-If CQ is full
 		-stall
 	-Insert instructions onto CQ at tail
+	-Set ROB_index
 	-If store 
 		-Set store field to TRUE
 	-If load
@@ -377,6 +458,9 @@ dispatch(state_t *state) {
 
 			/*Insert instruction onto CQ*/
 		state->CQ[state->CQ_tail].instr = instr;
+
+			/*Set ROB_index*/
+		state->CQ[stateCQ_tail].ROB_index = state->ROB_tail;
 
 			/*Link IQ computation to CQ tag1*/
 		state->IQ[state->CQ_tail].tag1 = state->IQ_tail;
