@@ -9,6 +9,11 @@
 #define TRUE 1
 #define FALSE 0
 
+/*Added*/
+#define ROB 1
+#define IQ 2
+#define CQ 3
+
 
 /* fetch/decode pipeline register */
 typedef struct _if_id_t {
@@ -117,3 +122,4 @@ extern void fetch(state_t *);
 /*Added*/
 void incr_ROB_tail(state_t *);
 void incr_IQ_tail(state_t *);
+void stall(state_t *);
