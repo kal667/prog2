@@ -120,6 +120,5 @@ extern int issue(state_t *);
 extern int dispatch(state_t *);
 extern void fetch(state_t *);
 /*Added*/
-void incr_ROB_tail(state_t *);
-void incr_IQ_tail(state_t *);
+void incr_tail(state_t *, int);
 void stall(state_t *);

@@ -18,16 +18,94 @@ commit(state_t *state) {
 
 void
 writeback(state_t *state) {
+
+	int i, index;
+
+	/*Integer*/
+	for (i = 0; i < state->wb_port_int_num; i++) {
+    	if (state->wb_port_int[i].tag != -1) {
+      		/*Handle all non-mem operations*/
+      		if (state->wb_port_int[i].tag < ROB_SIZE){
+      			state->ROB[state->wb_port_int[i].tag].completed = TRUE;
+      			/*Check tag against IQ*/
+      			for (index = state->IQ_head; index != state->IQ_tail; index = (index + 1) & (IQ_SIZE-1)) {
+      				/*Tag 1 Match -> copy result to operand field and set tag = -1*/
+      				if (state->IQ[index].tag1 == state->wb_port_int[i].tag) {
+      					state->IQ[index].operand1 = state->ROB[state->wb_port_int[i].tag].result.integer.w;
+      					state->IQ[index].tag1 = -1;
+      				}
+      				/*Tag 2 Match -> copy result to operand field and set tag = -1*/
+      				if (state->IQ[index].tag2 == state->wb_port_int[i].tag) {
+      					state->IQ[index].operand2 = state->ROB[state->wb_port_int[i].tag].result.integer.w;
+      					state->IQ[index].tag2 = -1;
+      				}
+      			}
+      			/*Check tag against CQ*/
+      			for (index = state->CQ_head; index != state->CQ_tail; index = (index + 1) & (CQ_SIZE-1)) {
+      				/*Tag 1 Match -> copy result to operand field and set tag = -1*/
+      				if (state->CQ[index].tag1 == state->wb_port_int[i].tag) {
+      					state->CQ[index].operand1 = state->ROB[state->wb_port_int[i].tag].result.integer.w;
+      					state->CQ[index].tag1 = -1;
+      				}
+      				/*Tag 2 Match -> copy result to operand field and set tag = -1*/
+      				if (state->CQ[index].tag2 == state->wb_port_int[i].tag) {
+      					state->CQ[index].operand2 = state->ROB[state->wb_port_int[i].tag].result.integer.w;
+      					state->CQ[index].tag2 = -1;
+      				}
+      			}
+      		}
+      		/*Handle all mem operations*/
+      		else{
+
+      		}
+      	}
+    }
+
+    /*Floating Point*/
+    for (i = 0; i < state->wb_port_fp_num; i++) {
+    	if (state->wb_port_fp[i].tag != -1) {
+      		state->ROB[state->wb_port_fp[i].tag].completed = TRUE;
+  			/*Check tag against IQ*/
+  			for (index = state->IQ_head; index != state->IQ_tail; index = (index + 1) & (IQ_SIZE-1)) {
+  				/*Tag 1 Match -> copy result to operand field and set tag = -1*/
+  				if (state->IQ[index].tag1 == state->wb_port_fp[i].tag) {
+  					state->IQ[index].operand1 = state->ROB[state->wb_port_fp[i].tag].result.flt
+  					state->IQ[index].tag1 = -1;
+  				}
+  				/*Tag 2 Match -> copy result to operand field and set tag = -1*/
+  				if (state->IQ[index].tag2 == state->wb_port_fp[i].tag) {
+  					state->IQ[index].operand2 = state->ROB[state->wb_port_fp[i].tag].result.flt
+  					state->IQ[index].tag2 = -1;
+  				}
+  			}
+  			/*Check tag against CQ*/
+  			for (index = state->CQ_head; index != state->CQ_tail; index = (index + 1) & (CQ_SIZE-1)) {
+  				/*Tag 1 should never match*/
+  				/*Tag 2 Match -> copy result to operand field and set tag = -1*/
+  				if (state->CQ[index].tag2 == state->wb_port_flt[i].tag) {
+  					state->CQ[index].operand2 = state->ROB[state->wb_port_int[i].tag].result.flt
+  					state->CQ[index].tag2 = -1;
+  				}
+  			}
+    	}
+    }
+
+    /*Branch*/
+    if (state->branch_tag != -1) {
+    	state->ROB[state->branch_tag].completed = TRUE;
+
+    	state->fetch_lock = FALSE;
+    }
 }
 
 
 void
 execute(state_t *state) {
-	advance_fu_mem(state->fu_mem_list, )
-	advance_fu_int(state->fu_int_list, &state->int_wb);
-	advance_fu_fp(state->fu_add_list, &state->fp_wb);
-	advance_fu_fp(state->fu_mult_list, &state->fp_wb);
-	advance_fu_fp(state->fu_div_list, &state->fp_wb);
+	advance_fu_mem(state->fu_mem_list, state->wb_port_int, state->wb_port_int_num, state->wb_port_fp, state->wb_port_fp_num);
+	advance_fu_int(state->fu_int_list, state->wb_port_int, state->wb_port_int_num, state->branch_tag);
+	advance_fu_fp(state->fu_add_list, state->wb_port_fp, state->wb_port_fp_num, state->branch_tag);
+	advance_fu_fp(state->fu_mult_list, state->wb_port_fp, state->wb_port_fp_num, state->branch_tag);
+	advance_fu_fp(state->fu_div_list, state->wb_port_fp, state->wb_port_fp_num, state->branch_tag);
 }
 
 
@@ -38,71 +116,97 @@ memory_disambiguation(state_t *state) {
 	memory operations, checks for con-flicts, and issues the 
 	memory operations if no conflicts exist
 	
-	-Scan CQ
-	-If Store
-		-If tag1 != -1
-			-Disambiguation fails -> no memory operations can issue
-			-return
-		-If unissued && tag1 && tag2 == -1
-			-Issue store immediately
-				-Set completed bit in coresponding ROB entry to TRUE
-				-Place the store value in the result field for ROB entry
-	-If Load
-		-If unissued && tag1 == -1
-			Check for conflicts with an older store
-			-Rescan the CQ from head to see if earlier store is writing to the same location
-			-If conflict
-				-Continue scanning CQ
-			-Else
-				-Try to issue_fu_mem
-				-If issue_fu_mem == fail
-					-Stall -> Exit
-				-if issue_fu_mem == success
-					-Set issued bit to TRUE
-					-Perform Operation
+	-For(Scan CQ)
+		-If Store
+			-If tag1 != -1
+				-Disambiguation fails -> no memory operations can issue
+				-break
+			-If unissued && tag1 && tag2 == -1
+				-Issue store immediately
+					-Set completed bit in coresponding ROB entry to TRUE
+					-Place the store value in the result field for ROB entry
+					-break
+		-If Load
+			-If unissued && tag1 == -1
+				Check for conflicts with an older store
+				-Rescan the CQ from head to see if earlier store is writing to the same location
+				-If conflict
+					-Continue scanning CQ
+				-Else
+					-Try to issue_fu_mem
+					-If issue_fu_mem == fail
+						-Stall -> Exit
+					-if issue_fu_mem == success
+						-Set issued bit to TRUE
+						-Perform Operation
+		-If pointer == tail
+			-break
 	*/
 
-	int pointer, use_imm, i;
-	const op_info_t *op_info;
+	int pointer, rescan, conflict, issue;
 
 	pointer = state->CQ_head;
 	
-	for (i = 0; TRUE; i++) {
-		/*Decode Instruction*/
-		op_info = decode_instr(state->IQ[pointer].instr, &use_imm);
-		r2 = FIELD_R2(state->IQ[pointer].instr);
+	for (;;) {
+		conflict = FALSE;
+		
 		/*Stores*/
-		if (op_info->operation == OPERATION_STORE){
+		if (state->CQ[pointer].store == TRUE){
 			/*No Effective Address*/
 			if (state->CQ[pointer].tag1 != -1) {
 				break;
 			}
 			/*Unissued and Ready*/
-			if ((state->CQ[pointer].issued == FALSE) && (state->CQ[pointer].tag1 == -1) && (state->CQ[pointer].tag2 ==-1)){
+			if ((state->CQ[pointer].issued == FALSE) && (state->CQ[pointer].tag1 == -1) && (state->CQ[pointer].tag2 == -1)){
 				state->ROB[state->CQ[pointer].ROB_index].completed = TRUE;
 				state->ROB[state->CQ[pointer].ROB_index].result = state->rf_fp.reg_fp.flt[r2];
+				break;
 			}
 		}
 		/*Loads*/
-		if (op_info->operation == OPERATION_LOAD){
+		if (state->CQ[pointer].store == FALSE){
 			/*Unissued and Ready*/
 			if ((state->CQ[pointer].issued == FALSE) && (state->CQ[pointer].tag1 == -1)){
-
+				/*Check for conflicts with an older store*/
+				for (rescan = state->CQ_head; !(rescan == pointer); rescan = (rescan + 1) % CQ_SIZE ){
+					/*If an unissued store is writing the same location*/
+					if ((state->CQ[rescan].store == TRUE) && (state->CQ[rescan].issued == FALSE) && (state->CQ[rescan].)) {
+						/*Set conflict flag and exit rescan*/
+						conflict = TRUE;
+						break;
+					}
+				}
+				/*If there's no conflict then try to issue*/
+				if (conflict != TRUE){
+					issue = issue_fu_mem(state->fu_mem_list, state->CQ[pointer].instr,  );
+					/*Successful Issue*/
+					if (issue == 0){
+						/*Set issued bit to TRUE*/
+						state->CQ[pointer].issued == TRUE;
+					}
+					/*Unsuccessful Issue*/
+					else break;
+				}
 			}
-
 		}
+		/*If we've scanned from head to tail then exit for loop*/
+		if (pointer == state->CQ_tail) break;
+		/*Else keep scanning IQ*/
+		else pointer = (pointer + 1) % CQ_SIZE;
 	}
 
-
-
-
+	/*Remove any issued instructions from CQ*/
+	for (;;){
+		if (state->CQ[state->CQ_head].issued == FALSE) break;
+		else state->CQ_head = (state->CQ_head + 1) % IQ_SIZE;
+	}
 }
 
 
 int
 issue(state_t *state) {
 
-	int pointer, remove, use_imm, i; 
+	int pointer, remove, use_imm; 
 	int issue = -1;
 	operand_t result;
 	const op_info_t *op_info;
@@ -138,7 +242,7 @@ issue(state_t *state) {
 	
 	pointer = state->IQ_head;
 	
-	for (i = 0; TRUE; i++) {
+	for (;;) {
 		if (state->IQ[pointer].issued == FALSE){
 			if ((state->IQ[pointer].tag1 == -1) && (state->IQ[pointer].tag2 ==-1)){
 				/*Decode Instruction*/
@@ -161,7 +265,7 @@ issue(state_t *state) {
 				/*Successful Issue*/
 				if (issue == 0){
 						/*Set issued bit to TRUE*/
-					state->ROB[state->IQ[pointer].ROB_index].issued= = TRUE;
+					state->ROB[state->IQ[pointer].ROB_index].issued = TRUE;
 						/*Write result to ROB*/
 							/*Loads and Stores: Effective Address goes to target*/
 					if (op_info->fu_group_num == FU_GROUP_MEM){
@@ -437,6 +541,7 @@ dispatch(state_t *state) {
 	-If CQ is full
 		-stall
 	-Insert instructions onto CQ at tail
+	-Set issued field to FALSE
 	-Set ROB_index
 	-If store 
 		-Set store field to TRUE
@@ -459,11 +564,14 @@ dispatch(state_t *state) {
 			/*Insert instruction onto CQ*/
 		state->CQ[state->CQ_tail].instr = instr;
 
+			/*Set Issued field to FALSE*/
+		state->CQ[state->CQ_tail].issued = FALSE;
+
 			/*Set ROB_index*/
 		state->CQ[stateCQ_tail].ROB_index = state->ROB_tail;
 
-			/*Link IQ computation to CQ tag1*/
-		state->IQ[state->CQ_tail].tag1 = state->IQ_tail;
+			/*Link IQ computation to CQ tag1 + ROB_SIZE*/
+		state->CQ[state->CQ_tail].tag1 = state->IQ_tail + ROB_SIZE;
 
 
 			/*Handle Stores*/
@@ -515,7 +623,7 @@ dispatch(state_t *state) {
 		incr_tail(state, CQ);
 	}	
 	
-	/*Increment ROB and IQ tail*/
+	/*Increment ROB and IQ tails*/
 	incr_tail(state, ROB);
 	incr_tail(state, IQ);
 
