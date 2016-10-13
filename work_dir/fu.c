@@ -839,3 +839,98 @@ decode_instr(int instr, int *use_imm) {
   }
   return op_info;
 }
+
+/* perform an instruction (changed from void)*/
+operand_t
+perform_operation(int instr, unsigned long pc, operand_t operand1,
+      operand_t operand2)
+{
+    const op_info_t *op_info;
+    int use_imm;
+    operand_t result;
+
+    op_info = decode_instr(instr, &use_imm);
+    switch(op_info->fu_group_num) {
+    case FU_GROUP_INT:
+        switch(op_info->operation) {
+        case OPERATION_ADD:
+            result.integer.w = operand1.integer.w + operand2.integer.w;
+            break;
+        case OPERATION_SUB:
+            result.integer.w = operand1.integer.w - operand2.integer.w;
+            break;
+        case OPERATION_ADDU:
+            result.integer.wu = operand1.integer.wu + operand2.integer.wu;
+            break;
+        }
+        return result;
+        break;
+
+    case FU_GROUP_ADD:
+        switch(op_info->operation) {
+        case OPERATION_ADD:
+            result.flt = operand1.flt + operand2.flt;
+            return result;
+            break;
+        case OPERATION_SUB:
+            result.flt = operand1.flt - operand2.flt;
+            return result;
+            break;
+        }
+    case FU_GROUP_MULT:
+        result.flt = operand1.flt * operand2.flt;
+        return result;
+        break;
+    case FU_GROUP_DIV:
+        result.flt = operand1.flt / operand2.flt;
+        return result;
+        break;
+
+    case FU_GROUP_MEM:
+        switch(op_info->operation) {
+        case OPERATION_LOAD:
+            if (op_info->data_type == DATA_TYPE_F) {
+                result.integer.w = operand1.integer.w + operand2.integer.w;
+            }
+            else {
+                result.integer.w = operand1.integer.w + operand2.integer.w + 3;/*Account for Endianness*/
+            }
+            return result;
+            break;
+        case OPERATION_STORE:
+            if (op_info->data_type == DATA_TYPE_F) {
+                result.integer.w = operand1.integer.w + operand2.integer.w;
+            }
+            else {
+                result.integer.w = operand1.integer.w + operand2.integer.w + 3;/*Account for Endianness*/
+            }
+        }
+            return result;
+            break;
+        break;
+
+    case FU_GROUP_BRANCH:
+        switch(op_info->operation) {
+        case OPERATION_BEQZ:
+            result.integer.wu = pc + operand2.integer.wu;
+            return result;
+            break;
+        case OPERATION_J:
+            result.integer.w = pc + operand2.integer.w;
+            return result;
+            break;
+        }
+    break;
+
+    case FU_GROUP_HALT:
+        return result;
+        break;
+
+    case FU_GROUP_NONE:
+        break;
+
+    case FU_GROUP_INVALID:
+    fprintf(stderr, "error: invalid opcode (instr = %.8X)\n", instr);
+  }
+
+}

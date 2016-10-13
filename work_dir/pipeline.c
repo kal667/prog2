@@ -12,7 +12,119 @@
 
 
 int
-commit(state_t *state) {
+commit(state_t *state, int *num_insn) {
+	
+	/*Return TRUE for HALT, FALSE otherwsie*/
+
+	/*
+	If instruction at ROB head has completed
+		Write result to register file (INT of FP)
+		Check if instruction's ROB index == tag in register being written
+			If they are equal then set tag = -1
+		Loads commit to register file but stores do not
+		Stores perform their operation to memory
+			Call issue_fu_mem an copy value to memory
+		Committing a HALT instruction terminates the simulation
+		Increment ROB_head
+	Else exit
+	*/
+
+	int instr, use_imm, issue;
+	operand_t result, target;
+	const op_info_t *op_info;
+	
+	if (state->ROB[ROB_head].completed == TRUE) {
+
+		instr = state->ROB[ROB_head].instr;
+		result = state->ROB[ROB_head].result;
+		target = state->ROB[ROB_head].target;
+		op_info = decode_instr(instr, &use_imm);
+
+		/*Perform Register macros for later use*/
+		r1 = FIELD_R1(instr);
+		r2 = FIELD_R2(instr);
+		r3 = FIELD_R3(instr);
+
+		/*HALT Condition*/
+		if (op_info->fu_group_num == FU_GROUP_HALT) return TRUE;
+
+			/*Floating Point Commit*/
+		if (op_info->data_type == DATA_TYPE_F) {
+				/*FP Memory*/
+			if (op_info->fu_group_num == FU_GROUP_MEM) {
+					/*Loads*/
+				if (op_info->operation == OPERATION_LOAD) {
+					union IntFloat val;
+					val.i = ((state->mem[target.integer.w]<<24)|(state->mem[target.integer.w+1]<<16)|(state->mem[target.integer.w+2]<<8)|(state->mem[target.integer.w+3]));
+					state->rf_fp.reg_fp.flt[r2] = val.f;
+					/*Set ready tag*/
+					if (ROB_head == state->rf_fp.tag[r2]) state->rf_fp.tag[r2] = -1;
+					*num_insn += 1;
+				}
+					/*Stores*/
+				if (op_info->operation == OPERATION_STORE) {
+					issue = issue_fu_mem(*fu_mem_list, ROB_head,target.integer.wu, TRUE);
+						/*Succesful Issue -> Copy to Memory*/
+					if (issue == 0){
+						union IntFloat val;
+						val.f = state->rf_fp.reg_fp[r2];
+						state->mem[target.integer.w] = (val.i >> 24) & 0xFF;
+						state->mem[target.integer.w + 1] = (val.i >> 16) & 0xFF;
+						state->mem[target.integer.w + 2] = (val.i >> 8) & 0xFF;
+						state->mem[target.integer.w + 3] = val.i & 0xFF;
+						*num_insn += 1;
+					}
+					else return FALSE;
+				}
+			}
+				/*FP Arithmetic*/
+			else {
+				state->rf_fp.reg_fp.flt[r3] = result.flt;
+					/*Set ready tag*/
+				if (ROB_head == state->rf_fp.tag[r3]) state->rf_fp.tag[r3] = -1;
+				*num_insn += 1;
+			}
+		}
+
+		/*Integer Commit*/
+		/*INT Loads and Stores*/
+		if (op_info->data_type == DATA_TYPE_W) {
+			/*Loads*/
+			if (op_info->operation == OPERATION_LOAD){
+				state->rf_int.reg_int.integer[r2].w = state->mem[result.integer.w];
+				/*Set ready tag*/
+				if (ROB_head == state->rf_int.tag[r2]) state->rf_int.tag[r2] = -1;
+				*num_insn += 1;
+			}
+			/*Stores*/
+			if (op_info->operation == OPERATION_STORE) {
+				issue = issue_fu_mem(*fu_mem_list, ROB_head,target.integer.wu, TRUE);
+				/*Succesful Issue -> Copy to Memory*/
+				if (issue == 0){
+					state->mem[target.integer.w] = state->rf_int.reg_int.integer[r2].w;
+					*num_insn += 1;
+				}
+				else return FALSE;
+			}
+		}
+
+		/*Integer Arithmetic / Logic*/
+		if (op_info->fu_group_num == FU_GROUP_INT) {
+			if (use_imm == FALSE){
+				state->rf_int.reg_int.integer[r3].w = result.integer.w;
+				*num_insn += 1;
+			}
+			else {
+				state->rf_int.reg_int.integer[r2].w = result.integer.w;
+				*num_insn += 1;
+			}
+		}
+
+		/*Increment ROB_head*/
+		state->ROB_head = (state->ROB_head + 1) % ROB_SIZE;
+	}
+	
+	else return FALSE;
 }
 
 
@@ -58,6 +170,8 @@ writeback(state_t *state) {
       		else{
 
       		}
+      		/*Clear WB INT tag*/
+      		state->wb_port_int[i].tag = -1;
       	}
     }
 
@@ -87,13 +201,23 @@ writeback(state_t *state) {
   					state->CQ[index].tag2 = -1;
   				}
   			}
+    		/*Clear WB FP tag*/
+  			state->wb_port_fp[i].tag = -1;
     	}
     }
 
     /*Branch*/
     if (state->branch_tag != -1) {
     	state->ROB[state->branch_tag].completed = TRUE;
-
+    	
+    	/*This needs some work*/
+		/*We can say result of 1 -> Take branch*/
+		if (state->ROB[state->branch_tag].result.integer.w == 1) {
+			state->pc = state->ROB[state->branch_tag].target.integer.wu;
+			state->if_id.instr = 0;
+		}
+		state->branch_tag = -1; /*Clear Branch Tag*/
+		
     	state->fetch_lock = FALSE;
     }
 }
@@ -103,9 +227,9 @@ void
 execute(state_t *state) {
 	advance_fu_mem(state->fu_mem_list, state->wb_port_int, state->wb_port_int_num, state->wb_port_fp, state->wb_port_fp_num);
 	advance_fu_int(state->fu_int_list, state->wb_port_int, state->wb_port_int_num, state->branch_tag);
-	advance_fu_fp(state->fu_add_list, state->wb_port_fp, state->wb_port_fp_num, state->branch_tag);
-	advance_fu_fp(state->fu_mult_list, state->wb_port_fp, state->wb_port_fp_num, state->branch_tag);
-	advance_fu_fp(state->fu_div_list, state->wb_port_fp, state->wb_port_fp_num, state->branch_tag);
+	advance_fu_fp(state->fu_add_list, state->wb_port_fp, state->wb_port_fp_num);
+	advance_fu_fp(state->fu_mult_list, state->wb_port_fp, state->wb_port_fp_num);
+	advance_fu_fp(state->fu_div_list, state->wb_port_fp, state->wb_port_fp_num);
 }
 
 
@@ -270,6 +394,17 @@ issue(state_t *state) {
 							/*Loads and Stores: Effective Address goes to target*/
 					if (op_info->fu_group_num == FU_GROUP_MEM){
 						state->ROB[state->IQ[pointer].ROB_index].target = result;
+					}
+							/*Branch; Address goes to target and Outcome goes to result*/
+							/*This only accounts for J and BEQZ*/
+					if (op_info->fu_group_num ==FU_GROUP_BRANCH){
+						state->ROB[state->IQ[pointer].ROB_index].target = result;
+								/*If the first operand is 0 then branch, indicated by 1*/
+						if (state->IQ[pointer].operand1 ==  0) {
+							state->ROB[state->IQ[pointer].ROB_index].result.integer.w = 1;
+						}
+								/*Otherwise don't branch, indicated by 0*/
+						else state->ROB[state->IQ[pointer].ROB_index].result.integer.w = 0;
 					}
 							/*Otherwise goes to result*/
 					else state->ROB[state->IQ[pointer].ROB_index].result = result;

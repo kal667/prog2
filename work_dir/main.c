@@ -55,7 +55,7 @@ main(int argc, char *argv[]) {
     printf("\n\n*** CYCLE %d\n", i);
     print_state(state, data_count);
 
-    commit(state);
+    if (commit(state, &num_insn) == TRUE) break;
     writeback(state);
     execute(state);
     memory_disambiguation(state);

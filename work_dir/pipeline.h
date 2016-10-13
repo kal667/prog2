@@ -14,6 +14,11 @@
 #define IQ 2
 #define CQ 3
 
+/*Added*/
+union IntFloat {
+  int i;
+  float f;
+};
 
 /* fetch/decode pipeline register */
 typedef struct _if_id_t {
