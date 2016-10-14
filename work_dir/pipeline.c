@@ -54,9 +54,7 @@ commit(state_t *state, int *num_insn) {
 			if (op_info->fu_group_num == FU_GROUP_MEM) {
 					/*Loads*/
 				if (op_info->operation == OPERATION_LOAD) {
-					union IntFloat val;
-					val.i = ((state->mem[target.integer.w]<<24)|(state->mem[target.integer.w+1]<<16)|(state->mem[target.integer.w+2]<<8)|(state->mem[target.integer.w+3]));
-					state->rf_fp.reg_fp.flt[r2] = val.f;
+					state->rf_fp.reg_fp.flt[r2] = result.flt;
 					/*Set ready tag*/
 					if (ROB_head == state->rf_fp.tag[r2]) state->rf_fp.tag[r2] = -1;
 					*num_insn += 1;
@@ -66,12 +64,10 @@ commit(state_t *state, int *num_insn) {
 					issue = issue_fu_mem(*fu_mem_list, ROB_head, TRUE, TRUE);
 						/*Succesful Issue -> Copy to Memory*/
 					if (issue == 0){
-						union IntFloat val;
-						val.f = state->rf_fp.reg_fp[r2];
-						state->mem[target.integer.w] = (val.i >> 24) & 0xFF;
-						state->mem[target.integer.w + 1] = (val.i >> 16) & 0xFF;
-						state->mem[target.integer.w + 2] = (val.i >> 8) & 0xFF;
-						state->mem[target.integer.w + 3] = val.i & 0xFF;
+						state->mem[target.integer.w] = (result.integer.w >> 24) & 0xFF;
+						state->mem[target.integer.w + 1] = (result.integer.w >> 16) & 0xFF;
+						state->mem[target.integer.w + 2] = (result.integer.w >> 8) & 0xFF;
+						state->mem[target.integer.w + 3] = result.integer.w & 0xFF;
 						*num_insn += 1;
 					}
 					else return FALSE;
@@ -91,7 +87,7 @@ commit(state_t *state, int *num_insn) {
 		if (op_info->data_type == DATA_TYPE_W) {
 			/*Loads*/
 			if (op_info->operation == OPERATION_LOAD){
-				state->rf_int.reg_int.integer[r2].w = state->mem[result.integer.w];
+				state->rf_int.reg_int.integer[r2].w = result.integer.w;
 				/*Set ready tag*/
 				if (ROB_head == state->rf_int.tag[r2]) state->rf_int.tag[r2] = -1;
 				*num_insn += 1;
@@ -101,7 +97,7 @@ commit(state_t *state, int *num_insn) {
 				issue = issue_fu_mem(*fu_mem_list, ROB_head, FALSE, TRUE);
 				/*Succesful Issue -> Copy to Memory*/
 				if (issue == 0){
-					state->mem[target.integer.w] = state->rf_int.reg_int.integer[r2].w;
+					state->mem[target.integer.w] = result.integer.w;
 					*num_insn += 1;
 				}
 				else return FALSE;
@@ -122,6 +118,8 @@ commit(state_t *state, int *num_insn) {
 
 		/*Increment ROB_head*/
 		state->ROB_head = (state->ROB_head + 1) % ROB_SIZE;
+
+		return FALSE;
 	}
 	
 	else return FALSE;
@@ -143,12 +141,12 @@ writeback(state_t *state) {
   			/*Check tag against IQ*/
   			for (index = state->IQ_head; index != state->IQ_tail; index = (index + 1) & (IQ_SIZE-1)) {
   				/*Tag 1 Match -> copy result to operand field and set tag = -1*/
-  				if (state->IQ[index].tag1 == (state->wb_port_int[i].tag % ROB_SIZE)) {
+  				if (state->IQ[index].tag1 == (state->wb_port_int[i].tag)) {
   					state->IQ[index].operand1 = state->ROB[state->wb_port_int[i].tag].result.integer.w;
   					state->IQ[index].tag1 = -1;
   				}
   				/*Tag 2 Match -> copy result to operand field and set tag = -1*/
-  				if (state->IQ[index].tag2 == (state->wb_port_int[i].tag % ROB_SIZE)) {
+  				if (state->IQ[index].tag2 == (state->wb_port_int[i].tag)) {
   					state->IQ[index].operand2 = state->ROB[state->wb_port_int[i].tag].result.integer.w;
   					state->IQ[index].tag2 = -1;
   				}
@@ -157,12 +155,12 @@ writeback(state_t *state) {
   			for (index = state->CQ_head; index != state->CQ_tail; index = (index + 1) & (CQ_SIZE-1)) {
   				/*Tag 1 Match -> copy result to operand field and set tag = -1*/
   				if (state->CQ[index].tag1 == state->wb_port_int[i].tag) {
-  					state->CQ[index].operand1 = state->ROB[state->wb_port_int[i].tag].result.integer.w;
+  					state->CQ[index].address = state->ROB[state->wb_port_int[i].tag - ROB_SIZE].target;
   					state->CQ[index].tag1 = -1;
   				}
   				/*Tag 2 Match -> copy result to operand field and set tag = -1*/
   				if (state->CQ[index].tag2 == state->wb_port_int[i].tag) {
-  					state->CQ[index].operand2 = state->ROB[state->wb_port_int[i].tag].result.integer.w;
+  					state->CQ[index].result = state->ROB[state->wb_port_int[i].tag].result;
   					state->CQ[index].tag2 = -1;
   				}
   			}
@@ -194,7 +192,7 @@ writeback(state_t *state) {
   				/*Tag 1 should never match*/
   				/*Tag 2 Match -> copy result to operand field and set tag = -1*/
   				if (state->CQ[index].tag2 == state->wb_port_flt[i].tag) {
-  					state->CQ[index].operand2 = state->ROB[state->wb_port_int[i].tag].result.flt
+  					state->CQ[index].result.flt = state->ROB[state->wb_port_int[i].tag].result.flt
   					state->CQ[index].tag2 = -1;
   				}
   			}
@@ -425,7 +423,7 @@ issue(state_t *state) {
 					issue = issue_fu_int(state->fu_int_list, state->IQ[pointer].ROB_index, FALSE, FALSE);
 				}
 				if (op_info->fu_group_num == FU_GROUP_MEM){
-					issue = issue_fu_int(state->fu_int_list, state->IQ[pointer].ROB_index + ROB_SIZE, FALSE, FALSE);
+					issue = issue_fu_int(state->fu_int_list, state->IQ[pointer].ROB_index, FALSE, FALSE);
 				}
 				if (op_info->fu_group_num ==FU_GROUP_BRANCH) {
 					issue = issue_fu_int(state->fu_int_list, state->IQ[pointer].ROB_index, TRUE, FALSE);
