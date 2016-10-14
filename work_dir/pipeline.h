@@ -10,9 +10,9 @@
 #define FALSE 0
 
 /*Added*/
-#define ROB 1
-#define IQ 2
-#define CQ 3
+#define _ROB_ 1
+#define _IQ_ 2
+#define _CQ_ 3
 
 /*Added*/
 union IntFloat {
@@ -117,7 +117,7 @@ typedef struct _state_t {
 
 extern state_t *state_create(int *,FILE *,FILE *,int,int);
 
-extern int commit(state_t *);
+extern int commit(state_t *, int *);
 extern void writeback(state_t *);
 extern void execute(state_t *);
 extern int memory_disambiguation(state_t *);
