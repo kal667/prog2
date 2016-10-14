@@ -390,10 +390,13 @@ memory_disambiguation(state_t *state) {
 		else pointer = (pointer + 1) % CQ_SIZE;
 	}
 	/*Remove any issued instructions from CQ*/
-	for (;;){
-		if (state->CQ[state->CQ_head].issued == FALSE) break;
-		state->CQ_head = (state->CQ_head + 1) % IQ_SIZE;
+	printf("MD 393\n");
+	for (pointer = state->CQ_head; pointer != state->CQ_tail; pointer = (pointer + 1) & (CQ_SIZE-1)){
+		printf("MD 395\n");
+		if (state->CQ[pointer].issued == FALSE) break;
+		state->CQ_head = (state->CQ_head + 1) % CQ_SIZE;
 	}
+	return 0;
 }
 
 
