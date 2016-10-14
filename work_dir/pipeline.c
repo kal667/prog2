@@ -13,7 +13,7 @@
 
 int
 commit(state_t *state, int *num_insn) {
-	
+	printf("Commit\n");
 	/*Return TRUE for HALT, FALSE otherwsie*/
 
 	/*
@@ -64,9 +64,13 @@ commit(state_t *state, int *num_insn) {
 				}
 					/*Stores*/
 				if (op_info->operation == OPERATION_STORE) {
+					printf("Commit 67\n");
 					issued = issue_fu_mem(state->fu_mem_list, state->ROB_head, TRUE, TRUE);
 						/*Succesful Issue -> Copy to Memory*/
 					if (issued == 0){
+						printf("C float %f\n", result.flt);
+						printf("C int %d\n", result.integer.w);
+						printf("C hex %x\n", result.integer.w);
 						state->mem[target.integer.w] = (result.integer.w >> 24) & 0xFF;
 						state->mem[target.integer.w + 1] = (result.integer.w >> 16) & 0xFF;
 						state->mem[target.integer.w + 2] = (result.integer.w >> 8) & 0xFF;
@@ -100,6 +104,7 @@ commit(state_t *state, int *num_insn) {
 				issued = issue_fu_mem(state->fu_mem_list, state->ROB_head, FALSE, TRUE);
 				/*Succesful Issue -> Copy to Memory*/
 				if (issued == 0){
+					printf("INT store\n");
 					state->mem[target.integer.w + 3] = result.integer.w;
 					*num_insn += 1;
 				}
@@ -119,6 +124,9 @@ commit(state_t *state, int *num_insn) {
 			}
 		}
 
+		/*Control Instructions*/
+		if (op_info->fu_group_num == FU_GROUP_BRANCH) *num_insn += 1;
+
 		/*Increment ROB_head*/
 		state->ROB_head = (state->ROB_head + 1) % ROB_SIZE;
 
@@ -131,6 +139,7 @@ commit(state_t *state, int *num_insn) {
 
 void
 writeback(state_t *state) {
+	printf("writeback\n");
 
 	int i, index;
 
@@ -195,8 +204,11 @@ writeback(state_t *state) {
   				/*Tag 1 should never match*/
   				/*Tag 2 Match -> copy result to operand field and set tag = -1*/
   				if (state->CQ[index].tag2 == state->wb_port_fp[i].tag) {
-  					state->CQ[index].result.flt = state->ROB[state->wb_port_int[i].tag].result.flt;
+  					state->CQ[index].result.integer.w = state->ROB[state->wb_port_fp[i].tag].result.integer.w;
   					state->CQ[index].tag2 = -1;
+  					printf("WB float %f\n", state->CQ[index].result.flt);
+					printf("WB int %d\n", state->CQ[index].result.integer.w);
+					printf("WB hex 0x%.8x\n", state->CQ[index].result.integer.w);
   				}
   			}
     		/*Clear WB FP tag*/
@@ -223,6 +235,7 @@ writeback(state_t *state) {
 
 void
 execute(state_t *state) {
+	printf("execute\n");
 	advance_fu_mem(state->fu_mem_list, state->wb_port_int, state->wb_port_int_num, state->wb_port_fp, state->wb_port_fp_num);
 	advance_fu_int(state->fu_int_list, state->wb_port_int, state->wb_port_int_num, &state->branch_tag);
 	advance_fu_fp(state->fu_add_list, state->wb_port_fp, state->wb_port_fp_num);
@@ -233,6 +246,7 @@ execute(state_t *state) {
 
 int
 memory_disambiguation(state_t *state) {
+	printf("MD\n");
 	/*
 	The memory disambiguation stage scans the “CQ” for ready 
 	memory operations, checks for con-flicts, and issues the 
@@ -312,10 +326,12 @@ memory_disambiguation(state_t *state) {
 					op_info = decode_instr(state->CQ[pointer].instr, &use_imm);
 					/*FP Loads*/
 					if (op_info->data_type == DATA_TYPE_F) {
+						printf("MD line 315\n");
 						issued = issue_fu_mem(state->fu_mem_list, state->CQ[pointer].ROB_index, TRUE, FALSE);
 						/*Successful Issue*/
 						if (issued == 0){
-							state->CQ[pointer].issued == TRUE;
+							printf("MD line 319\n");
+							state->CQ[pointer].issued = TRUE;
 							/*state->ROB[state->CQ[pointer].ROB_index].completed = TRUE;*/
 							/*Check completed Stores in ROB for same effective address*/
 							for (rescan = state->ROB_head; !(rescan == state->ROB_tail + 1); rescan = (rescan + 1) % ROB_SIZE) {
@@ -382,6 +398,7 @@ memory_disambiguation(state_t *state) {
 
 
 int issue(state_t *state) {
+	printf("Issue\n");
 
 	int pointer, use_imm; 
 	int issued = -1;
@@ -479,16 +496,19 @@ int issue(state_t *state) {
 	}
 	
 	/*Remove any issued instructions from IQ*/
-	for (;;){
-		pointer = state->IQ_head;
+	printf("Issue 488\n");
+	for (pointer = state->IQ_head; pointer != state->IQ_tail; pointer = (pointer + 1) & (IQ_SIZE-1)){
+		printf("Issue 490\n");
 		if (state->IQ[pointer].issued == FALSE) break;
 		state->IQ_head = (state->IQ_head + 1) % IQ_SIZE;
 	}
+	return 0;
 }
 
 
 int
 dispatch(state_t *state) {
+	printf("dispatch\n");
 
 	/*Return -1 for stall, 1 for halt or NOP, 0 for issue*/
 
@@ -832,6 +852,7 @@ dispatch(state_t *state) {
 
 void
 fetch(state_t *state) {
+	printf("fetch\n");
 
 	/*Go to memory and get instruction | 32 bits wide*/
 	state->if_id.instr = (state->mem[state->pc]<<24)|(state->mem[state->pc+1]<<16)|(state->mem[state->pc+2]<<8)|(state->mem[state->pc+3]);
