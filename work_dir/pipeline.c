@@ -46,7 +46,10 @@ commit(state_t *state, int *num_insn) {
 		r3 = FIELD_R3(instr);
 
 		/*HALT Condition*/
-		if (op_info->fu_group_num == FU_GROUP_HALT) return TRUE;
+		if (op_info->fu_group_num == FU_GROUP_HALT) {
+			*num_insn += 1;
+			return TRUE;
+		}
 
 			/*Floating Point Commit*/
 		if (op_info->data_type == DATA_TYPE_F) {
@@ -97,7 +100,7 @@ commit(state_t *state, int *num_insn) {
 				issued = issue_fu_mem(state->fu_mem_list, state->ROB_head, FALSE, TRUE);
 				/*Succesful Issue -> Copy to Memory*/
 				if (issued == 0){
-					state->mem[target.integer.w] = result.integer.w;
+					state->mem[target.integer.w + 3] = result.integer.w;
 					*num_insn += 1;
 				}
 				else return FALSE;
@@ -291,17 +294,21 @@ memory_disambiguation(state_t *state) {
 		if (state->CQ[pointer].store == FALSE){
 			/*Unissued and Ready*/
 			if ((state->CQ[pointer].issued == FALSE) && (state->CQ[pointer].tag1 == -1)){
+				printf("MD line 294\n");
 				/*Check for conflicts with an older store*/
 				for (rescan = state->CQ_head; !(rescan == pointer); rescan = (rescan + 1) % CQ_SIZE ){
+					printf("MD line 297\n");
 					/*If an unissued store is writing the same location*/
 					if ((state->CQ[rescan].store == TRUE) && (state->CQ[rescan].issued == FALSE) && (state->CQ[rescan].address.integer.w == state->CQ[pointer].address.integer.w)) {
 						/*Set conflict flag and exit rescan*/
+						printf("MD line 301\n");
 						conflict = TRUE;
 						break;
 					}
 				}
 				/*If there's no conflict then try to issue*/
 				if (conflict == FALSE){
+					printf("MD line 308\n");
 					op_info = decode_instr(state->CQ[pointer].instr, &use_imm);
 					/*FP Loads*/
 					if (op_info->data_type == DATA_TYPE_F) {
@@ -334,10 +341,12 @@ memory_disambiguation(state_t *state) {
 					}
 					/*INT Loads*/
 					if (op_info->data_type == DATA_TYPE_W) {
+						printf("MD line 341\n");
 						issued = issue_fu_mem(state->fu_mem_list, state->CQ[pointer].ROB_index, FALSE, FALSE);
 						/*Successful Issue*/
 						if (issued == 0){
-							state->CQ[pointer].issued == TRUE;
+							printf("MD line 345\n");
+							state->CQ[pointer].issued = TRUE;
 							/*state->ROB[state->CQ[pointer].ROB_index].completed = TRUE;*/
 							/*Check completed Stores in ROB for same effective address*/
 							for (rescan = state->ROB_head; !(rescan == state->ROB_tail + 1); rescan = (rescan + 1) % ROB_SIZE) {
@@ -350,7 +359,7 @@ memory_disambiguation(state_t *state) {
 							}
 							/*Else load from memory*/
 							if (match == FALSE){
-								state->ROB[state->CQ[pointer].ROB_index].result.integer.w = state->mem[state->ROB[state->CQ[pointer].ROB_index].target.integer.w];
+								state->ROB[state->CQ[pointer].ROB_index].result.integer.w = state->mem[state->ROB[state->CQ[pointer].ROB_index].target.integer.w + 3];
 							}
 						/*Unsuccessful Issue*/
 						else break;
@@ -422,7 +431,7 @@ int issue(state_t *state) {
 					issued = issue_fu_int(state->fu_int_list, state->IQ[pointer].ROB_index, FALSE, FALSE);
 				}
 				if (op_info->fu_group_num == FU_GROUP_MEM){
-					issued = issue_fu_int(state->fu_int_list, state->IQ[pointer].ROB_index, FALSE, FALSE);
+					issued = issue_fu_int(state->fu_int_list, state->IQ[pointer].ROB_index + ROB_SIZE, FALSE, FALSE);
 				}
 				if (op_info->fu_group_num ==FU_GROUP_BRANCH) {
 					issued = issue_fu_int(state->fu_int_list, state->IQ[pointer].ROB_index, TRUE, FALSE);
@@ -527,6 +536,7 @@ dispatch(state_t *state) {
 	state->ROB[state->ROB_tail].instr = instr;
 	if (op_info->fu_group_num == FU_GROUP_HALT) {
 		state->ROB[state->ROB_tail].completed = TRUE;
+		incr_tail(state, _ROB_);
 		state->fetch_lock = TRUE;
 		return 1;
 	}
@@ -552,7 +562,7 @@ dispatch(state_t *state) {
 
 		/*Set ROB_index field*/
 	if (op_info->fu_group_num == FU_GROUP_MEM){
-		state->IQ[state->IQ_tail].ROB_index = state->ROB_tail + ROB_SIZE;
+		state->IQ[state->IQ_tail].ROB_index = state->ROB_tail /*+ ROB_SIZE*/;
 	}
 	else state->IQ[state->IQ_tail].ROB_index = state->ROB_tail;
 

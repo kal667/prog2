@@ -893,7 +893,7 @@ perform_operation(int instr, unsigned long pc, operand_t operand1,
                 result.integer.w = operand1.integer.w + operand2.integer.w;
             }
             else {
-                result.integer.w = operand1.integer.w + operand2.integer.w + 3;/*Account for Endianness*/
+                result.integer.w = operand1.integer.w + operand2.integer.w /*+ 3*/;/*Account for Endianness*/
             }
             return result;
             break;
@@ -902,7 +902,7 @@ perform_operation(int instr, unsigned long pc, operand_t operand1,
                 result.integer.w = operand1.integer.w + operand2.integer.w;
             }
             else {
-                result.integer.w = operand1.integer.w + operand2.integer.w + 3;/*Account for Endianness*/
+                result.integer.w = operand1.integer.w + operand2.integer.w;/*Account for Endianness*/
             }
         }
             return result;
