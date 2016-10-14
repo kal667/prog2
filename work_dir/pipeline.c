@@ -63,7 +63,7 @@ commit(state_t *state, int *num_insn) {
 				}
 					/*Stores*/
 				if (op_info->operation == OPERATION_STORE) {
-					issue = issue_fu_mem(*fu_mem_list, ROB_head,target.integer.wu, TRUE);
+					issue = issue_fu_mem(*fu_mem_list, ROB_head, TRUE, TRUE);
 						/*Succesful Issue -> Copy to Memory*/
 					if (issue == 0){
 						union IntFloat val;
@@ -98,7 +98,7 @@ commit(state_t *state, int *num_insn) {
 			}
 			/*Stores*/
 			if (op_info->operation == OPERATION_STORE) {
-				issue = issue_fu_mem(*fu_mem_list, ROB_head,target.integer.wu, TRUE);
+				issue = issue_fu_mem(*fu_mem_list, ROB_head, FALSE, TRUE);
 				/*Succesful Issue -> Copy to Memory*/
 				if (issue == 0){
 					state->mem[target.integer.w] = state->rf_int.reg_int.integer[r2].w;
@@ -136,40 +136,37 @@ writeback(state_t *state) {
 	/*Integer*/
 	for (i = 0; i < state->wb_port_int_num; i++) {
     	if (state->wb_port_int[i].tag != -1) {
-      		/*Handle all non-mem operations*/
+      		/*Completed for all non effective address operations*/
       		if (state->wb_port_int[i].tag < ROB_SIZE){
       			state->ROB[state->wb_port_int[i].tag].completed = TRUE;
-      			/*Check tag against IQ*/
-      			for (index = state->IQ_head; index != state->IQ_tail; index = (index + 1) & (IQ_SIZE-1)) {
-      				/*Tag 1 Match -> copy result to operand field and set tag = -1*/
-      				if (state->IQ[index].tag1 == state->wb_port_int[i].tag) {
-      					state->IQ[index].operand1 = state->ROB[state->wb_port_int[i].tag].result.integer.w;
-      					state->IQ[index].tag1 = -1;
-      				}
-      				/*Tag 2 Match -> copy result to operand field and set tag = -1*/
-      				if (state->IQ[index].tag2 == state->wb_port_int[i].tag) {
-      					state->IQ[index].operand2 = state->ROB[state->wb_port_int[i].tag].result.integer.w;
-      					state->IQ[index].tag2 = -1;
-      				}
-      			}
-      			/*Check tag against CQ*/
-      			for (index = state->CQ_head; index != state->CQ_tail; index = (index + 1) & (CQ_SIZE-1)) {
-      				/*Tag 1 Match -> copy result to operand field and set tag = -1*/
-      				if (state->CQ[index].tag1 == state->wb_port_int[i].tag) {
-      					state->CQ[index].operand1 = state->ROB[state->wb_port_int[i].tag].result.integer.w;
-      					state->CQ[index].tag1 = -1;
-      				}
-      				/*Tag 2 Match -> copy result to operand field and set tag = -1*/
-      				if (state->CQ[index].tag2 == state->wb_port_int[i].tag) {
-      					state->CQ[index].operand2 = state->ROB[state->wb_port_int[i].tag].result.integer.w;
-      					state->CQ[index].tag2 = -1;
-      				}
-      			}
       		}
-      		/*Handle all mem operations*/
-      		else{
+  			/*Check tag against IQ*/
+  			for (index = state->IQ_head; index != state->IQ_tail; index = (index + 1) & (IQ_SIZE-1)) {
+  				/*Tag 1 Match -> copy result to operand field and set tag = -1*/
+  				if (state->IQ[index].tag1 == (state->wb_port_int[i].tag % ROB_SIZE)) {
+  					state->IQ[index].operand1 = state->ROB[state->wb_port_int[i].tag].result.integer.w;
+  					state->IQ[index].tag1 = -1;
+  				}
+  				/*Tag 2 Match -> copy result to operand field and set tag = -1*/
+  				if (state->IQ[index].tag2 == (state->wb_port_int[i].tag % ROB_SIZE)) {
+  					state->IQ[index].operand2 = state->ROB[state->wb_port_int[i].tag].result.integer.w;
+  					state->IQ[index].tag2 = -1;
+  				}
+  			}
+  			/*Check tag against CQ*/
+  			for (index = state->CQ_head; index != state->CQ_tail; index = (index + 1) & (CQ_SIZE-1)) {
+  				/*Tag 1 Match -> copy result to operand field and set tag = -1*/
+  				if (state->CQ[index].tag1 == state->wb_port_int[i].tag) {
+  					state->CQ[index].operand1 = state->ROB[state->wb_port_int[i].tag].result.integer.w;
+  					state->CQ[index].tag1 = -1;
+  				}
+  				/*Tag 2 Match -> copy result to operand field and set tag = -1*/
+  				if (state->CQ[index].tag2 == state->wb_port_int[i].tag) {
+  					state->CQ[index].operand2 = state->ROB[state->wb_port_int[i].tag].result.integer.w;
+  					state->CQ[index].tag2 = -1;
+  				}
+  			}
 
-      		}
       		/*Clear WB INT tag*/
       		state->wb_port_int[i].tag = -1;
       	}
@@ -267,12 +264,16 @@ memory_disambiguation(state_t *state) {
 			-break
 	*/
 
-	int pointer, rescan, conflict, issue;
+	int use_imm;
+	op_info_t *op_info, *op_info_rescan;
+
+	int pointer, rescan, conflict, issue, match;
 
 	pointer = state->CQ_head;
 	
 	for (;;) {
 		conflict = FALSE;
+		match = FALSE;
 		
 		/*Stores*/
 		if (state->CQ[pointer].store == TRUE){
@@ -282,8 +283,9 @@ memory_disambiguation(state_t *state) {
 			}
 			/*Unissued and Ready*/
 			if ((state->CQ[pointer].issued == FALSE) && (state->CQ[pointer].tag1 == -1) && (state->CQ[pointer].tag2 == -1)){
+				state->CQ[pointer].issued = TRUE;
 				state->ROB[state->CQ[pointer].ROB_index].completed = TRUE;
-				state->ROB[state->CQ[pointer].ROB_index].result = state->rf_fp.reg_fp.flt[r2];
+				state->ROB[state->CQ[pointer].ROB_index].result = state->CQ[pointer].result;
 				break;
 			}
 		}
@@ -294,22 +296,67 @@ memory_disambiguation(state_t *state) {
 				/*Check for conflicts with an older store*/
 				for (rescan = state->CQ_head; !(rescan == pointer); rescan = (rescan + 1) % CQ_SIZE ){
 					/*If an unissued store is writing the same location*/
-					if ((state->CQ[rescan].store == TRUE) && (state->CQ[rescan].issued == FALSE) && (state->CQ[rescan].)) {
+					if ((state->CQ[rescan].store == TRUE) && (state->CQ[rescan].issued == FALSE) && (state->CQ[rescan].address == state->CQ[pointer].address)) {
 						/*Set conflict flag and exit rescan*/
 						conflict = TRUE;
 						break;
 					}
 				}
 				/*If there's no conflict then try to issue*/
-				if (conflict != TRUE){
-					issue = issue_fu_mem(state->fu_mem_list, state->CQ[pointer].instr,  );
-					/*Successful Issue*/
-					if (issue == 0){
-						/*Set issued bit to TRUE*/
-						state->CQ[pointer].issued == TRUE;
+				if (conflict == FALSE){
+					op_info = decode_instr(state->CQ[pointer].instr, &use_imm);
+					/*FP Loads*/
+					if (op_info->data_type == DATA_TYPE_F) {
+						issue = issue_fu_mem(state->fu_mem_list, state->CQ[pointer].ROB_index, TRUE, FALSE);
+						/*Successful Issue*/
+						if (issue == 0){
+							state->CQ[pointer].issued == TRUE;
+							/*state->ROB[state->CQ[pointer].ROB_index].completed = TRUE;*/
+							/*Check completed Stores in ROB for same effective address*/
+							for (rescan = state->ROB_head; !(rescan == state->ROB_tail + 1); rescan = (rescan + 1) % ROB_SIZE) {
+								op_info_rescan = decode_instr(state->ROB[rescan].instr, &use_imm);
+								if ((state->ROB[rescan].target == state->ROB[state->CQ[pointer].ROB_index].target)&&
+								(state->ROB[rescan].completed ==TRUE)&&(op_info_rescan->operation == OPERATION_STORE)) {
+									state->ROB[state->CQ[pointer].ROB_index].result = state->ROB[rescan].result;
+									match = TRUE;
+								}
+							}
+							/*Else load from memory*/
+							if (match == FALSE){
+								union IntFloat val;
+								val.i = ((state->mem[state->ROB[state->CQ[pointer].ROB_index].target.integer.w]<<24)|
+									(state->mem[state->ROB[state->CQ[pointer].ROB_index].target.integer.w+1]<<16)|
+									(state->mem[state->ROB[state->CQ[pointer].ROB_index].target.integer.w+2]<<8)|
+									(state->mem[state->ROB[state->CQ[pointer].ROB_index].target.integer.w+3]));
+								state->ROB[state->CQ[pointer].ROB_index].result.flt = val.f;
+							}	
+						}
+						/*Unsuccessful Issue*/
+						else break;
 					}
-					/*Unsuccessful Issue*/
-					else break;
+					/*INT Loads*/
+					if (op_info->data_type == DATA_TYPE_W) {
+						issue = issue_fu_mem(state->fu_mem_list, state->CQ[pointer].ROB_index, FALSE, FALSE);
+						/*Successful Issue*/
+						if (issue == 0){
+							state->CQ[pointer].issued == TRUE;
+							/*state->ROB[state->CQ[pointer].ROB_index].completed = TRUE;*/
+							/*Check completed Stores in ROB for same effective address*/
+							for (rescan = state->ROB_head; !(rescan == state->ROB_tail + 1); rescan = (rescan + 1) % ROB_SIZE) {
+								op_info_rescan = decode_instr(state->ROB[rescan].instr, &use_imm);
+								if ((state->ROB[rescan].target == state->ROB[state->CQ[pointer].ROB_index].target)&&
+								(state->ROB[rescan].completed ==TRUE)&&(op_info->operation == OPERATION_STORE)) {
+									state->ROB[state->CQ[pointer].ROB_index].result = state->ROB[rescan].result;
+									match = TRUE;
+								}
+							}
+							/*Else load from memory*/
+							if (match == FALSE){
+								state->ROB[state->CQ[pointer].ROB_index].result.integer.w = state->mem[state->ROB[state->CQ[pointer].ROB_index].target.integer.w];
+							}
+						/*Unsuccessful Issue*/
+						else break;
+					}
 				}
 			}
 		}
@@ -322,7 +369,7 @@ memory_disambiguation(state_t *state) {
 	/*Remove any issued instructions from CQ*/
 	for (;;){
 		if (state->CQ[state->CQ_head].issued == FALSE) break;
-		else state->CQ_head = (state->CQ_head + 1) % IQ_SIZE;
+		state->CQ_head = (state->CQ_head + 1) % IQ_SIZE;
 	}
 }
 
@@ -330,7 +377,7 @@ memory_disambiguation(state_t *state) {
 int
 issue(state_t *state) {
 
-	int pointer, remove, use_imm; 
+	int pointer, use_imm; 
 	int issue = -1;
 	operand_t result;
 	const op_info_t *op_info;
@@ -374,17 +421,23 @@ issue(state_t *state) {
 				/*perform operation*/
 				result = perform_operation(state->IQ[pointer].instr, state->IQ[pointer].pc, state->IQ[pointer].operand1, state->IQ[pointer].operand2);
 				/*Issue Instruction*/
-				if ((op_info->fu_group_num == FU_GROUP_INT)||(op_info->fu_group_num ==FU_GROUP_BRANCH)||(op_info->fu_group_num == FU_GROUP_MEM)) {
-					issue = issue_fu_int(state->fu_int_list, instr, result);
+				if (op_info->fu_group_num == FU_GROUP_INT) {
+					issue = issue_fu_int(state->fu_int_list, state->IQ[pointer].ROB_index, FALSE, FALSE);
+				}
+				if (op_info->fu_group_num == FU_GROUP_MEM){
+					issue = issue_fu_int(state->fu_int_list, state->IQ[pointer].ROB_index + ROB_SIZE, FALSE, FALSE);
+				}
+				if (op_info->fu_group_num ==FU_GROUP_BRANCH) {
+					issue = issue_fu_int(state->fu_int_list, state->IQ[pointer].ROB_index, TRUE, FALSE);
 				}
 				if (op_info->fu_group_num == FU_GROUP_ADD) {
-					issue = issue_fu_fp(state->fu_add_list, instr, result);
+					issue = issue_fu_fp(state->fu_add_list, state->IQ[pointer].ROB_index);
 				}
 				if (op_info->fu_group_num == FU_GROUP_MULT) {
-					issue = issue_fu_fp(state->fu_mult_list, instr, result);
+					issue = issue_fu_fp(state->fu_mult_list, state->IQ[pointer].ROB_index);
 				}
 				if(op_info->fu_group_num == FU_GROUP_DIV) {
-					issue = issue_fu_fp(state->fu_div_list, instr, result);
+					issue = issue_fu_fp(state->fu_div_list, state->IQ[pointer].ROB_index);
 				}
 				/*Successful Issue*/
 				if (issue == 0){
@@ -406,7 +459,7 @@ issue(state_t *state) {
 								/*Otherwise don't branch, indicated by 0*/
 						else state->ROB[state->IQ[pointer].ROB_index].result.integer.w = 0;
 					}
-							/*Otherwise goes to result*/
+							/*All others go to result*/
 					else state->ROB[state->IQ[pointer].ROB_index].result = result;
 						/*Exit for loop*/
 					break;
@@ -418,14 +471,12 @@ issue(state_t *state) {
 		/*Else keep scanning IQ*/
 		else pointer = (pointer + 1) % IQ_SIZE;
 	}
+	
 	/*Remove any issued instructions from IQ*/
-	remove = TRUE;
-	for (i = 0;remove == TRUE; i++){
+	for (;;){
 		pointer = state->IQ_head;
-		if (state->IQ[pointer].issued == FALSE) remove = FALSE;
-		else {
-			state->IQ_head = (state->IQ_head + 1) % IQ_SIZE;
-		}
+		if (state->IQ[pointer].issued == FALSE) break;
+		state->IQ_head = (state->IQ_head + 1) % IQ_SIZE;
 	}
 }
 
@@ -435,7 +486,7 @@ dispatch(state_t *state) {
 
 	/*Return -1 for stall, 1 for halt or NOP, 0 for issue*/
 
-	int instr, use_imm, tag_check, full; /*Holds instruction, immediate flag, check tags, check queue*/
+	int instr, use_imm, tag_check, full, completed; /*Holds instruction, immediate flag, check tags, check queue*/
 	const op_info_t *op_info;
 	unsigned int opcode, func, r1, r2, r3, immu; /*Unsigned Macros*/
 	signed int imm, offset; /*Signed Macros*/
@@ -458,34 +509,35 @@ dispatch(state_t *state) {
 
 	/*Squash NOPs*/
 	if (instr == 0) {
-		return 0;
+		return 1;
 	}
 
-	/*
-	ROB
-	-If ROB is full
-		-stall
-	-Insert instructions onto ROB at tail
-	-Set completed field to FALSE (except for HALT = TRUE)
-	-Increment ROB_tail (moved to end)
-	*/
-	
-		/*Check if ROB is full*/
-	full = check_queue(state, ROB);
-	if (full == TRUE){
+	/*Stall if any queue is full*/
+	if ((state->ROB_head == (state->ROB_tail + 1) % ROB_SIZE)||
+		(state->IQ_head == (state->IQ_tail + 1) % IQ_SIZE)||
+		(state->CQ_head == (state->CQ_tail + 1) % CQ_SIZE)) {
 		stall(state);
 		return -1;
 	}
 
+	/*
+	ROB
+	-Insert instructions onto ROB at tail
+	-Set completed field to FALSE 
+	- Manage HALT
+	*/
+	
 	state->ROB[state->ROB_tail].instr = instr;
-	if (op_info->fu_group_num == FU_GROUP_HALT) state->ROB[state->ROB_tail].completed = TRUE;
+	if (op_info->fu_group_num == FU_GROUP_HALT) {
+		state->ROB[state->ROB_tail].completed = TRUE;
+		state->fetch_lock = TRUE;
+		return 1;
+	}
 	else state->ROB[state->ROB_tail].completed = FALSE;
 
 	/*
 	IQ
-	-If IQ is full
-		-stall
-	-Insert instruction and pc onto IQ at tail (except HALT)
+	-Insert instruction and pc onto IQ at tail
 	-Set issued field to FALSE
 	-Increment IQ_tail (moved to end)
 	-Set ROB_index field
@@ -494,18 +546,6 @@ dispatch(state_t *state) {
 		-tag = ROB_index of in-flight instruction if value is being computed
 	*/
 
-		/*Check if IQ is full*/
-	full = check_queue(state, IQ);
-	if (full == TRUE){
-		stall(state);
-		return -1;
-	}
-
-		/*Halt: fetch lock and return*/
-	if (op_info->fu_group_num == FU_GROUP_HALT) {
-		state->fetch_lock = TRUE;
-		return 1;
-	}
 		/*Insert instruction and pc onto IQ*/
 	state->IQ[state->IQ_tail].instr = instr;
 	state->IQ[state->IQ_tail].pc = state->pc;
@@ -514,12 +554,15 @@ dispatch(state_t *state) {
 	state->IQ[state->IQ_tail].issued = FALSE;
 
 		/*Set ROB_index field*/
-	state->IQ[state->IQ_tail].ROB_index = state->ROB_tail;
+	if (op_info->fu_group_num == FU_GROUP_MEM){
+		state->IQ[state->IQ_tail].ROB_index = state->ROB_tail + ROB_SIZE;
+	}
+	else state->IQ[state->IQ_tail].ROB_index = state->ROB_tail;
 
 		/*
 		Set tag1/operand1 and tag2/operand2 fields.
 		Check_in_flight_status takes the state, register and int/flt
-		and returns the value in the 
+		and returns the value in the register file tag
 		-Check desired register
 			-if (tag_check == -1) 
 				-read register value into operand
@@ -534,32 +577,38 @@ dispatch(state_t *state) {
 		*/
 			/*Integer Arithmetic / Logic*/
 	if (op_info->fu_group_num == FU_GROUP_INT) {
-				/*Check R1 tag*/
-		tag_check = check_in_flight_status()
+				/*Check R1 register file tag*/
+		tag_check = check_in_flight_status(state, r1, 0)
 		if(tag_check == -1){
 			state->IQ[state->IQ_tail].operand1.integer.w = state->rf_int.reg_int.integer[r1].w;
 			state->IQ[state->IQ_tail].tag1 = -1;
 		}
 		else{
-			tag_check = state->ROB[tag_check].completed;
-			if (tag_check == TRUE){
-				state->IQ[state->IQ_tail].operand1.integer.w = state->rf_int.reg_int.integer[r1].w;
-			}
-			state->IQ[state->IQ_tail].tag1 = tag_check;
-		}
-				/*Check R2 tag if no immediate*/
-		if(use_imm == FALSE) {
-			tag_check = check_in_flight_status(state);
-			if (tag_check == -1){
-				state->IQ[state->IQ_tail].operand2.integer.w = state->rf_int.reg_int.integer[r2].w;
-				state->IQ[state->IQ_tail].tag2 = -1
+			completed = state->ROB[tag_check].completed;
+			if (completed == TRUE){
+				state->IQ[state->IQ_tail].operand1 = state->ROB[tag_check].result;
+				state->IQ[state->IQ_tail].tag1 = -1;
 			}
 			else{
-				tag_check = state->ROB[tag_check].completed;
-				if (tag_check == TRUE){
-					state->IQ[state->IQ_tail].operand2.integer.w = state->rf_int.reg_int.integer[r2].w;
+			state->IQ[state->IQ_tail].tag1 = tag_check;
 			}
-			state->IQ[state->IQ_tail].tag2 = tag_check;
+		}
+				/*Check R2 register file tag if no immediate*/
+		if(use_imm == FALSE) {
+			tag_check = check_in_flight_status(state, r2, 0)
+			if(tag_check == -1){
+				state->IQ[state->IQ_tail].operand2.integer.w = state->rf_int.reg_int.integer[r1].w;
+				state->IQ[state->IQ_tail].tag2 = -1;
+			}
+			else{
+				completed = state->ROB[tag_check].completed;
+				if (completed == TRUE){
+					state->IQ[state->IQ_tail].operand2 = state->ROB[tag_check].result;
+					state->IQ[state->IQ_tail].tag2 = -1;
+				}
+				else{
+				state->IQ[state->IQ_tail].tag2 = tag_check;
+				}
 			}
 				/*Set destination register R3 tag to ROB_index*/
 			state->rf_int.tag[r3] = state->ROB_tail;
@@ -577,59 +626,69 @@ dispatch(state_t *state) {
 	if (op_info->fu_group_num == FU_GROUP_MEM) {
 
 			/*Check R1 tag*/
-		tag_check = check_in_flight_status()
+		tag_check = check_in_flight_status(state, r1, 0)
 		if(tag_check == -1){
 			state->IQ[state->IQ_tail].operand1.integer.w = state->rf_int.reg_int.integer[r1].w;
 			state->IQ[state->IQ_tail].tag1 = -1;
 		}
 		else{
-			tag_check = state->ROB[tag_check].completed;
-			if (tag_check == TRUE){
-				state->IQ[state->IQ_tail].operand1.integer.w = state->rf_int.reg_int.integer[r1].w;
+			completed = state->ROB[tag_check].completed;
+			if (completed == TRUE){
+				state->IQ[state->IQ_tail].operand1 = state->ROB[tag_check].result;
+				state->IQ[state->IQ_tail].tag1 = -1;
 			}
-			state->IQ[state->IQ_tail].tag1 = tag_check;
+			else {
+				state->IQ[state->IQ_tail].tag1 = tag_check;
+			}
 		}
 
 			/*Second operand is an immediate and always ready*/
 		state->IQ[state->IQ_tail].operand2.integer.w = imm;
 		state->IQ[state->IQ_tail].tag2 = -1;
 			
-			/*Set destination register tag to ROB_index*/
-		if (op_info->data_type == DATA_TYPE_F){
-			state->rf_fp.tag[r2] = state->ROB_tail;
-		}
-		else {
-			state->rf_int.tag[r2] = state->ROB_tail;
-		}
+			/*Set destination register tag to ROB_index -> Only loads*/
+		if (op_info->operation == OPERATION_LOAD)
+			if (op_info->data_type == DATA_TYPE_F){
+				state->rf_fp.tag[r2] = state->ROB_tail;
+			}
+			else {
+				state->rf_int.tag[r2] = state->ROB_tail;
+			}
 	}
 
 			/*Floating Point Arithmetic*/
 	if ((op_info->fu_group_num == FU_GROUP_ADD)||(op_info->fu_group_num == FU_GROUP_MULT)||(op_info->fu_group_num == FU_GROUP_DIV)){
-				/*Check R1 tag*/
-		tag_check = check_in_flight_status();
+				/*Check R1 register file tag*/
+		tag_check = check_in_flight_status(state, r1, 1);
 		if(tag_check == -1) {
 			state->IQ[state->IQ_tail].operand1.flt = state->rf_fp.reg_fp.flt[r1];
 			state->IQ[state->IQ_tail].tag1 = -1;
 		}
 		else{
-			tag_check = state->ROB[tag_check].completed;
-			if (tag_check == TRUE){
-				state->IQ[state->IQ_tail].operand1.flt = state->rf_fp.reg_fp.flt[r1];
+			completed = state->ROB[tag_check].completed;
+			if (completed == TRUE){
+				state->IQ[state->IQ_tail].operand1.flt = state->ROB[tag_check].result;
+				state->IQ[state->IQ_tail].tag1 = -1;
 			}
-			state->IQ[state->IQ_tail].tag1 = tag_check;
+			else {
+				state->IQ[state->IQ_tail].tag1 = tag_check;
+			}
 		}
-				/*Check R2 tag*/
-		tag_check = check_in_flight_status();
+				/*Check R2 register file tag*/
+		tag_check = check_in_flight_status(state, r2, 1);
 		if(tag_check == -1) {
 			state->IQ[state->IQ_tail].operand2.flt = state->rf_fp.reg_fp.flt[r2];
 			state->IQ[state->IQ_tail].tag2 = -1;
 		}
 		else{
-			tag_check = state->ROB[tag_check].completed;
-			if (tag_check == TRUE){
-				state->IQ[state->IQ_tail].operand2.flt = state->rf_fp.reg_fp.flt[r2];
+			completed = state->ROB[tag_check].completed;
+			if (completed == TRUE){
+				state->IQ[state->IQ_tail].operand2.flt = state->ROB[tag_check].result;
+				state->IQ[state->IQ_tail].tag2 = -1;
 			}
-			state->IQ[state->IQ_tail].tag2 = tag_check;
+			else{
+				state->IQ[state->IQ_tail].tag2 = tag_check;
+			}
 		}
 				/*Set destination register R3 tag to ROB_index*/
 		state->rf_fp.tag[r3] = state->ROB_tail;
@@ -644,19 +703,22 @@ dispatch(state_t *state) {
 			state->IQ[state->IQ_tail].operand1.integer.w = 0;
 			state->IQ[state->IQ_tail].tag1 = -1;
 		}
-				/*Check R1 tag*/
+				/*Check R1 register file tag*/
 		else{
-			tag_check = check_in_flight_status();
+			tag_check = check_in_flight_status(state, r1, 0);
 			if(tag_check == -1) {
 				state->IQ[state->IQ_tail].operand1.integer.wu = state->rf_int.reg_int.integer[r1].wu;
 				state->IQ[state->IQ_tail].tag1 = -1;
 			}
 			else{
-				tag_check = state->ROB[tag_check].completed;
-				if (tag_check == TRUE){
-					state->IQ[state->IQ_tail].operand1.integer.wu = state->rf_int.reg_int.integer[r1].wu;
+				completed = state->ROB[tag_check].completed;
+				if (completed == TRUE){
+					state->IQ[state->IQ_tail].operand1.integer.wu = state->ROB[tag_check].result;
+					state->IQ[state->IQ_tail].tag1 = -1;
 				}
+				else {
 				state->IQ[state->IQ_tail].tag1 = tag_check;
+				}
 			}
 		}
 				/*Second operand is always an immediate*/
@@ -689,13 +751,6 @@ dispatch(state_t *state) {
 
 	if (op_info->fu_group_num == FU_GROUP_MEM){
 
-			/*Check if CQ is full*/
-		full = check_queue(state, CQ);
-		if (full == TRUE){
-			stall(state);
-			return -1;
-		}
-
 			/*Insert instruction onto CQ*/
 		state->CQ[state->CQ_tail].instr = instr;
 
@@ -705,8 +760,8 @@ dispatch(state_t *state) {
 			/*Set ROB_index*/
 		state->CQ[stateCQ_tail].ROB_index = state->ROB_tail;
 
-			/*Link IQ computation to CQ tag1 + ROB_SIZE*/
-		state->CQ[state->CQ_tail].tag1 = state->IQ_tail + ROB_SIZE;
+			/*Link IQ computation to CQ tag1*/
+		state->CQ[state->CQ_tail].tag1 = state->ROB_tail + ROB_SIZE;
 
 
 			/*Handle Stores*/
@@ -717,33 +772,35 @@ dispatch(state_t *state) {
 				
 						/*For FP*/
 			if (op_info->data_type == DATA_TYPE_F){
-				tag_check = check_in_flight_status()
+				tag_check = check_in_flight_status(state, r2, 1)
 				if(tag_check == -1){
-					state->IQ[state->CQ_tail].operand1.integer.w = state->rf_fp.reg_fp.flt[r2];
-					state->IQ[state->CQ_tail].tag2 = -1;
+					state->CQ[state->CQ_tail].result.flt = state->rf_fp.reg_fp.flt[r2];
+					state->CQ[state->CQ_tail].tag2 = -1;
 				}
 				else{
-					tag_check = state->IQ[tag_check].completed;
-					if (tag_check == TRUE){
-						state->CQ[state->CQ_tail].operand1.integer.w = state->rf_fp.reg_fp.flt[r2];
+					completed = state->ROB[tag_check].completed;
+					if (completed == TRUE){
+						state->CQ[state->CQ_tail].result = state->ROB[tag_check].result;
+						state->CQ[state->CQ_tail].tag2 = -1;
 					}
-					state->CQ[state->CQ_tail].tag2 = tag_check;
+					else state->CQ[state->CQ_tail].tag2 = tag_check;
 				}
 			}
 
 					/*For INT*/
 			if (op_info->data_type == DATA_TYPE_W){
-				tag_check = check_in_flight_status()
+				tag_check = check_in_flight_status(state, r2, 0)
 				if(tag_check == -1){
-					state->CQ[state->CQ_tail].operand1.integer.w = state->rf_int.reg_int.integer[r2].w;
+					state->CQ[state->CQ_tail].result.integer.w = state->rf_int.reg_int.integer[r2].w;
 					state->CQ[state->CQ_tail].tag2 = -1;
 				}
 				else{
-					tag_check = state->IQ[tag_check].completed;
-					if (tag_check == TRUE){
+					completed = state->IQ[tag_check].completed;
+					if (completed == TRUE){
 						state->CQ[state->CQ_tail].operand1.integer.w = state->rf_int.reg_int.integer[r2].w;
+						state->CQ[state->CQ_tail].tag2 = -1;
 					}
-					state->CQ[state->CQ_tail].tag2 = tag_check;
+					else state->CQ[state->CQ_tail].tag2 = tag_check;
 				}
 			}
 		}
@@ -788,8 +845,7 @@ void stall(state_t *state){
 }
 
 /*Function to increment the tail*/
-void
-incr_tail(state_t *state, int queue) {
+void incr_tail(state_t *state, int queue) {
 
 	/*ROB*/
 	if (queue == ROB){
@@ -805,4 +861,17 @@ incr_tail(state_t *state, int queue) {
 	if (queue == CQ){
 		state->CQ_tail = (state->CQ_tail + 1) % CQ_SIZE;
 	}
+}
+
+/*Pulls INT or FP register file tag*/
+int check_in_flight_status( state_t *state, unsigned int reg, int type) {
+	int tag_check;
+	/*Type 0 for INT, type 1 for FP*/
+	if (type == 0){
+		tag_check = state->rf_int.tag[reg];
+	}
+	if (type == 1){
+		tag_check = state->rf_fp.tag[reg];
+	}
+	return tag_check;
 }

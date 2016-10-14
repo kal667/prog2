@@ -127,3 +127,4 @@ extern void fetch(state_t *);
 /*Added*/
 void incr_tail(state_t *, int);
 void stall(state_t *);
+int check_in_flight_status( state_t *, unsigned int, int);
