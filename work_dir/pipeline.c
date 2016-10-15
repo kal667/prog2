@@ -64,13 +64,9 @@ commit(state_t *state, int *num_insn) {
 				}
 					/*Stores*/
 				if (op_info->operation == OPERATION_STORE) {
-					printf("Commit 67\n");
 					issued = issue_fu_mem(state->fu_mem_list, state->ROB_head, TRUE, TRUE);
 						/*Succesful Issue -> Copy to Memory*/
 					if (issued == 0){
-						printf("C float %f\n", result.flt);
-						printf("C int %d\n", result.integer.w);
-						printf("C hex %x\n", result.integer.w);
 						state->mem[target.integer.w] = (result.integer.w >> 24) & 0xFF;
 						state->mem[target.integer.w + 1] = (result.integer.w >> 16) & 0xFF;
 						state->mem[target.integer.w + 2] = (result.integer.w >> 8) & 0xFF;
@@ -104,7 +100,6 @@ commit(state_t *state, int *num_insn) {
 				issued = issue_fu_mem(state->fu_mem_list, state->ROB_head, FALSE, TRUE);
 				/*Succesful Issue -> Copy to Memory*/
 				if (issued == 0){
-					printf("INT store\n");
 					state->mem[target.integer.w + 3] = result.integer.w;
 					*num_insn += 1;
 				}
@@ -206,9 +201,6 @@ writeback(state_t *state) {
   				if (state->CQ[index].tag2 == state->wb_port_fp[i].tag) {
   					state->CQ[index].result.integer.w = state->ROB[state->wb_port_fp[i].tag].result.integer.w;
   					state->CQ[index].tag2 = -1;
-  					printf("WB float %f\n", state->CQ[index].result.flt);
-					printf("WB int %d\n", state->CQ[index].result.integer.w);
-					printf("WB hex 0x%.8x\n", state->CQ[index].result.integer.w);
   				}
   			}
     		/*Clear WB FP tag*/
@@ -280,7 +272,8 @@ memory_disambiguation(state_t *state) {
 	*/
 
 	int use_imm;
-	op_info_t *op_info, *op_info_rescan;
+	const op_info_t *op_info;
+	const op_info_t *op_info_rescan;
 
 	int pointer, rescan, conflict, issued, match;
 
@@ -308,29 +301,23 @@ memory_disambiguation(state_t *state) {
 		if (state->CQ[pointer].store == FALSE){
 			/*Unissued and Ready*/
 			if ((state->CQ[pointer].issued == FALSE) && (state->CQ[pointer].tag1 == -1)){
-				printf("MD line 294\n");
 				/*Check for conflicts with an older store*/
 				for (rescan = state->CQ_head; !(rescan == pointer); rescan = (rescan + 1) % CQ_SIZE ){
-					printf("MD line 297\n");
 					/*If an unissued store is writing the same location*/
 					if ((state->CQ[rescan].store == TRUE) && (state->CQ[rescan].issued == FALSE) && (state->CQ[rescan].address.integer.w == state->CQ[pointer].address.integer.w)) {
 						/*Set conflict flag and exit rescan*/
-						printf("MD line 301\n");
 						conflict = TRUE;
 						break;
 					}
 				}
 				/*If there's no conflict then try to issue*/
 				if (conflict == FALSE){
-					printf("MD line 308\n");
 					op_info = decode_instr(state->CQ[pointer].instr, &use_imm);
 					/*FP Loads*/
 					if (op_info->data_type == DATA_TYPE_F) {
-						printf("MD line 315\n");
 						issued = issue_fu_mem(state->fu_mem_list, state->CQ[pointer].ROB_index, TRUE, FALSE);
 						/*Successful Issue*/
 						if (issued == 0){
-							printf("MD line 319\n");
 							state->CQ[pointer].issued = TRUE;
 							/*state->ROB[state->CQ[pointer].ROB_index].completed = TRUE;*/
 							/*Check completed Stores in ROB for same effective address*/
@@ -357,11 +344,9 @@ memory_disambiguation(state_t *state) {
 					}
 					/*INT Loads*/
 					if (op_info->data_type == DATA_TYPE_W) {
-						printf("MD line 341\n");
 						issued = issue_fu_mem(state->fu_mem_list, state->CQ[pointer].ROB_index, FALSE, FALSE);
 						/*Successful Issue*/
 						if (issued == 0){
-							printf("MD line 345\n");
 							state->CQ[pointer].issued = TRUE;
 							/*state->ROB[state->CQ[pointer].ROB_index].completed = TRUE;*/
 							/*Check completed Stores in ROB for same effective address*/
@@ -390,9 +375,7 @@ memory_disambiguation(state_t *state) {
 		else pointer = (pointer + 1) % CQ_SIZE;
 	}
 	/*Remove any issued instructions from CQ*/
-	printf("MD 393\n");
 	for (pointer = state->CQ_head; pointer != state->CQ_tail; pointer = (pointer + 1) & (CQ_SIZE-1)){
-		printf("MD 395\n");
 		if (state->CQ[pointer].issued == FALSE) break;
 		state->CQ_head = (state->CQ_head + 1) % CQ_SIZE;
 	}
@@ -499,9 +482,7 @@ int issue(state_t *state) {
 	}
 	
 	/*Remove any issued instructions from IQ*/
-	printf("Issue 488\n");
 	for (pointer = state->IQ_head; pointer != state->IQ_tail; pointer = (pointer + 1) & (IQ_SIZE-1)){
-		printf("Issue 490\n");
 		if (state->IQ[pointer].issued == FALSE) break;
 		state->IQ_head = (state->IQ_head + 1) % IQ_SIZE;
 	}
@@ -860,6 +841,8 @@ fetch(state_t *state) {
 	/*Go to memory and get instruction | 32 bits wide*/
 	state->if_id.instr = (state->mem[state->pc]<<24)|(state->mem[state->pc+1]<<16)|(state->mem[state->pc+2]<<8)|(state->mem[state->pc+3]);
 	state->if_id.pc = state->pc;
+
+	printf("Instruction Fetched 0x%.8X",state->if_id.instr);
 
 	/*Increment the PC*/
 	state->pc += 4;
