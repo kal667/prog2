@@ -13,7 +13,6 @@
 
 int
 commit(state_t *state, int *num_insn) {
-	printf("Commit\n");
 	/*Return TRUE for HALT, FALSE otherwsie*/
 
 	/*
@@ -134,7 +133,6 @@ commit(state_t *state, int *num_insn) {
 
 void
 writeback(state_t *state) {
-	printf("writeback\n");
 
 	int i, index;
 
@@ -227,7 +225,6 @@ writeback(state_t *state) {
 
 void
 execute(state_t *state) {
-	printf("execute\n");
 	advance_fu_mem(state->fu_mem_list, state->wb_port_int, state->wb_port_int_num, state->wb_port_fp, state->wb_port_fp_num);
 	advance_fu_int(state->fu_int_list, state->wb_port_int, state->wb_port_int_num, &state->branch_tag);
 	advance_fu_fp(state->fu_add_list, state->wb_port_fp, state->wb_port_fp_num);
@@ -238,7 +235,6 @@ execute(state_t *state) {
 
 int
 memory_disambiguation(state_t *state) {
-	printf("MD\n");
 	/*
 	The memory disambiguation stage scans the “CQ” for ready 
 	memory operations, checks for con-flicts, and issues the 
@@ -384,7 +380,6 @@ memory_disambiguation(state_t *state) {
 
 
 int issue(state_t *state) {
-	printf("Issue\n");
 
 	int pointer, use_imm; 
 	int issued = -1;
@@ -492,7 +487,6 @@ int issue(state_t *state) {
 
 int
 dispatch(state_t *state) {
-	printf("dispatch\n");
 
 	/*Return -1 for stall, 1 for halt or NOP, 0 for issue*/
 
@@ -836,13 +830,10 @@ dispatch(state_t *state) {
 
 void
 fetch(state_t *state) {
-	printf("fetch\n");
 
 	/*Go to memory and get instruction | 32 bits wide*/
 	state->if_id.instr = (state->mem[state->pc]<<24)|(state->mem[state->pc+1]<<16)|(state->mem[state->pc+2]<<8)|(state->mem[state->pc+3]);
 	state->if_id.pc = state->pc;
-
-	printf("Instruction Fetched 0x%.8X",state->if_id.instr);
 
 	/*Increment the PC*/
 	state->pc += 4;
